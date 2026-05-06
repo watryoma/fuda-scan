@@ -12,6 +12,7 @@ import {
 import { CameraView, useCameraPermissions } from "expo-camera";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
+import { t } from "./i18n";
 
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? "";
 const STORAGE_KEY = "fuda_scan_results_v2";
@@ -34,7 +35,7 @@ async function callGemini(base64Image: string): Promise<{ name: string; price: s
           {
             parts: [
               {
-                text: 'この値札から商品名と価格を読み取って、必ず以下のJSON形式で返してください。マークダウンや他の文字は一切含めず、JSONのみ返してください。\n{"name": "商品名", "price": "¥1,280"}\n価格は「¥1,280」の形式。商品名は商品名のみ（メーカー名や説明文は除外）。',
+                text: 'この値札から商品名と価格を読み取って、必ず以下のJSON形式で返してください。マークダウンや他の文字は一切含めず、JSONのみ返してください。\n{"name": "メーカー 商品名", "price": "¥1,280"}\n価格は「¥1,280」の形式。商品名にはメーカー名と商品名を半角スペース区切りで含めてください（メーカー名がない場合は商品名のみ）。商品名内のスペースは全て半角スペースを使用してください。',
               },
               {
                 inline_data: { mime_type: "image/jpeg", data: base64Image },
@@ -56,11 +57,11 @@ async function callGemini(base64Image: string): Promise<{ name: string; price: s
   try {
     const parsed = JSON.parse(text);
     return {
-      name: parsed.name ?? "不明",
+      name: parsed.name ?? t.unknown,
       price: parsed.price ?? "",
     };
   } catch {
-    throw new Error("読み取り結果の解析に失敗");
+    throw new Error(t.parseError);
   }
 }
 
@@ -93,11 +94,11 @@ export default function App() {
         base64: true,
         quality: 0.7,
       });
-      if (!photo?.base64) throw new Error("撮影失敗");
+      if (!photo?.base64) throw new Error(t.captureFailed);
       const result = await callGemini(photo.base64);
       setResults((prev) => [
         {
-          id: Date.now().toString(),
+          id: Date.now().toString() + Math.random().toString().slice(2, 8),
           name: result.name,
           price: result.price,
           time: new Date().toLocaleTimeString("ja-JP"),
@@ -105,13 +106,19 @@ export default function App() {
         ...prev,
       ]);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "不明なエラー";
+      const msg = e instanceof Error ? e.message : t.unknownError;
       if (msg.includes("quota") || msg.includes("rate") || msg.includes("retry")) {
         setIsRateLimited(true);
         setTimeout(() => setIsRateLimited(false), 30000);
-        Alert.alert("少し待ってください", "30秒ほど待ってから再度お試しください。");
+        Alert.alert(t.waitTitle, t.waitMessage);
+      } else if (msg.includes("high demand") || msg.includes("overloaded") || msg.includes("503")) {
+        setIsRateLimited(true);
+        setTimeout(() => setIsRateLimited(false), 15000);
+        Alert.alert(t.busyTitle, t.busyMessage);
+      } else if (msg.includes(t.parseError) || msg.includes("解析に失敗") || msg.includes("parse")) {
+        Alert.alert(t.parseFailedTitle, t.parseFailedMessage);
       } else {
-        Alert.alert("エラー", msg);
+        Alert.alert(t.networkErrorTitle, t.networkErrorMessage);
       }
     } finally {
       setScanCount((c) => c - 1);
@@ -124,7 +131,21 @@ export default function App() {
 
   const handleCopy = async (text: string) => {
     await Clipboard.setStringAsync(text);
-    Alert.alert("コピーしました", text);
+    Alert.alert(t.copied, text);
+  };
+
+  const handleCopyAll = async () => {
+    if (results.length === 0) return;
+    const text = results.map((r) => `${r.name} ${r.price}`).join("\n");
+    await Clipboard.setStringAsync(text);
+    Alert.alert(t.copiedAll, t.itemsCount(results.length));
+  };
+
+  const handleDeleteAll = () => {
+    Alert.alert(t.confirmDeleteAllTitle, t.confirmDeleteAllMessage, [
+      { text: t.cancel, style: "cancel" },
+      { text: t.delete, style: "destructive", onPress: () => setResults([]) },
+    ]);
   };
 
   if (!permission) return <View style={styles.container} />;
@@ -132,9 +153,9 @@ export default function App() {
   if (!permission.granted) {
     return (
       <View style={styles.center}>
-        <Text style={styles.permText}>カメラの許可が必要です</Text>
+        <Text style={styles.permText}>{t.permissionRequired}</Text>
         <TouchableOpacity style={styles.permButton} onPress={requestPermission}>
-          <Text style={styles.permButtonText}>許可する</Text>
+          <Text style={styles.permButtonText}>{t.allowPermission}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -150,7 +171,7 @@ export default function App() {
 
         {/* 上部ガイドテキスト */}
         <View style={styles.topBar}>
-          <Text style={styles.topBarText}>値札にカメラを向けてボタンをタップ</Text>
+          <Text style={styles.topBarText}>{t.cameraGuide}</Text>
         </View>
 
         {/* シャッターボタン */}
@@ -182,7 +203,7 @@ export default function App() {
         >
           <View style={styles.dragBar} />
           <Text style={styles.historyLabel}>
-            スキャン履歴（{results.length}件）{showHistory ? " ▼" : " ▲"}
+            {t.scanHistory}（{t.itemsCount(results.length)}）{showHistory ? " ▼" : " ▲"}
           </Text>
         </TouchableOpacity>
 
@@ -203,11 +224,11 @@ export default function App() {
                   style={styles.shareButton}
                   onPress={() => handleDelete(results[0].id)}
                 >
-                  <Text style={styles.shareButtonText}>削除</Text>
+                  <Text style={styles.shareButtonText}>{t.delete}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
-              <Text style={styles.emptyText}>タップしてスキャン開始</Text>
+              <Text style={styles.emptyText}>{t.tapToScan}</Text>
             )}
           </View>
         )}
@@ -215,8 +236,20 @@ export default function App() {
         {/* 履歴一覧（履歴を開いているとき） */}
         {showHistory && (
           <ScrollView style={styles.historyList}>
+            {/* 全コピー・全削除ボタン */}
+            {results.length > 0 && (
+              <View style={styles.bulkActions}>
+                <TouchableOpacity style={styles.bulkButton} onPress={handleCopyAll}>
+                  <Text style={styles.bulkButtonText}>{t.copyAll}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.bulkButtonDanger} onPress={handleDeleteAll}>
+                  <Text style={styles.bulkButtonText}>{t.deleteAll}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {results.length === 0 ? (
-              <Text style={styles.emptyText}>まだスキャンしていません</Text>
+              <Text style={styles.emptyText}>{t.noScansYet}</Text>
             ) : (
               results.map((r) => (
                 <View key={r.id} style={styles.historyItem}>
@@ -236,7 +269,7 @@ export default function App() {
                     style={styles.shareButton}
                     onPress={() => handleDelete(r.id)}
                   >
-                    <Text style={styles.shareButtonText}>削除</Text>
+                    <Text style={styles.shareButtonText}>{t.delete}</Text>
                   </TouchableOpacity>
                 </View>
               ))
@@ -344,6 +377,29 @@ const styles = StyleSheet.create({
   shareButtonText: { color: "#fff", fontSize: 13, fontWeight: "bold" },
 
   historyList: { maxHeight: 300, paddingHorizontal: 16 },
+  bulkActions: {
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#333",
+    marginBottom: 4,
+  },
+  bulkButton: {
+    flex: 1,
+    backgroundColor: "#1976d2",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  bulkButtonDanger: {
+    flex: 1,
+    backgroundColor: "#c62828",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  bulkButtonText: { color: "#fff", fontSize: 14, fontWeight: "bold" },
   historyItem: {
     flexDirection: "row",
     alignItems: "center",

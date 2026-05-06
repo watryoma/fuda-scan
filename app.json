@@ -1,8 +1,12 @@
 {
   "expo": {
-    "name": "fuda-scan",
+    "name": "スキャ値",
     "slug": "fuda-scan",
     "version": "1.0.0",
+    "locales": {
+      "ja": "./assets/locales/ja.json",
+      "en": "./assets/locales/en.json"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -10,10 +14,14 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#2196f3"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.watana.fudascan",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -25,6 +33,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c3ab4583-3a75-4f9f-8c18-ffe5eb711c6e"
+      }
+    },
+    "plugins": [
+      "expo-localization"
+    ]
   }
 }
